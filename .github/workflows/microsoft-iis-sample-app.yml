@@ -1,0 +1,246 @@
+name: "Microsoft IIS Sample App"
+
+permissions:
+  contents: read
+
+on:
+  # To conserve resources we only run tests against main in PRs
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'sample-apps/microsoft-iis/**'
+      - '.github/workflows/microsoft-iis-sample-app.yml'
+
+  # Allow manual triggering for testing
+  workflow_dispatch:
+
+  push:
+    branches:
+      - test/iis-runner
+
+jobs:
+  test-microsoft-iis-sample-app:
+    name: Test Microsoft IIS sample app on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest and newest Windows Server versions that GitHub-hosted runners offer
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: wsl-bash {0}
+
+    steps:
+      - name: Set git to use LF
+        shell: cmd
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Setup WSL
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-20.04
+          wsl-shell-command: bash -e -u -o pipefail
+
+      - name: Setup environment variables
+        run: |
+          echo 'PATH=$HOME/.local/bin:$PATH' >> ~/.vars
+          echo 'DEBIAN_FRONTEND=noninteractive' >> ~/.vars
+          source ~/.vars
+          echo $PATH
+
+      - name: Install Docker in WSL
+        run: |
+          source ~/.vars
+          
+          echo "Installing Docker in WSL..."
+          
+          # Install Docker if not cached
+          if ! command -v docker &> /dev/null; then
+            echo "Installing Docker dependencies..."
+            sudo apt-get update
+            sudo apt-get install -y ca-certificates curl gnupg lsb-release
+          
+            echo "Adding Docker GPG key..."
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+          
+            echo "Adding Docker repository..."
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          
+            echo "Installing Docker..."
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+          
+            echo "Docker installed successfully"
+          else
+            echo "Docker already available"
+          fi
+          
+          # Start Docker service
+          sudo service docker start
+          
+          # Wait for Docker to be ready
+          timeout 60s bash -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
+          
+          echo "Docker is ready"
+          docker --version
+          
+          # Install jq for JSON parsing in validation step
+          echo "Installing jq for JSON parsing..."
+          sudo apt-get install -y jq
+          echo "jq installed successfully"
+
+      - name: Run Microsoft IIS sample app
+        shell: powershell
+        run: |
+          cd sample-apps/microsoft-iis
+
+          .\scripts\install_iis.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          .\scripts\setup_sites.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          .\scripts\install_alloy.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          .\scripts\create_default_config.ps1 -LokiUrl "http://localhost:3100/loki/api/v1/push" -PrometheusUrl "http://localhost:9009/api/v1/push"
+          .\scripts\configure_alloy.ps1
+
+          # Databases come up later, so early pushes buffer in the WAL
+          .\scripts\start_alloy.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          # The load runs in its own process, so it continues through the metrics validation
+          Start-Process -FilePath powershell -ArgumentList "-ExecutionPolicy Bypass -File scripts\generate_load.ps1 -DurationSeconds 1200" -WindowStyle Hidden
+
+      # Start after the Windows setup, WSL2 stops its VM and these containers when idle
+      - name: Start Mimir and Loki containers
+        run: |
+          source ~/.vars
+
+          echo "Starting Mimir and Loki containers using docker-compose..."
+          
+          # Navigate to the docker-compose directory
+          cd ops/qa/dbs
+          
+          # Start services with docker compose
+          docker compose up -d
+          
+          # Set default config
+          source ../../.defaultconfig
+          
+          echo "Database setup complete - Loki: localhost:3100, Mimir: localhost:9009"
+          
+          # Wait for containers to be running first
+          echo "Waiting for containers to be running..."
+          timeout 30s bash -c 'until [ "$(docker inspect -f {{.State.Running}} dbs-mimir-1)" == "true" ]; do sleep 2; done'
+          timeout 30s bash -c 'until [ "$(docker inspect -f {{.State.Running}} dbs-loki-1)" == "true" ]; do sleep 2; done'
+          
+          echo "Containers are running, waiting for services to be ready..."
+          
+          # Give services time to initialize
+          echo "Waiting for services to initialize..."
+          sleep 45
+          
+          # Check Mimir health using official readiness probe
+          echo "Checking Mimir health..."
+          for i in {1..30}; do
+            if curl -s http://localhost:9009/ready >/dev/null 2>&1; then
+              echo "✅ Mimir is ready"
+              break
+            fi
+            echo "Attempt $i/30: Mimir not ready yet..."
+            sleep 5
+            if [ $i -eq 30 ]; then
+              echo "⚠️ Mimir /ready endpoint not responding, but checking logs..."
+              docker logs dbs-mimir-1 --tail 10
+              # Don't fail here, continue to Loki check
+            fi
+          done
+          
+          # Check Loki health using official readiness probe
+          echo "Checking Loki health..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3100/ready >/dev/null 2>&1; then
+              echo "✅ Loki is ready"
+              break
+            fi
+            echo "Attempt $i/30: Loki not ready yet..."
+            sleep 5
+            if [ $i -eq 30 ]; then
+              echo "⚠️ Loki /ready endpoint not responding, but checking logs..."
+              docker logs dbs-loki-1 --tail 10
+              # Don't fail here, continue with workflow
+            fi
+          done
+          
+          echo "✅ All services are ready"
+
+      - name: Wait for sample app to generate metrics
+        run: |
+          source ~/.vars
+          source ./ops/.defaultconfig
+          source ./sample-apps/microsoft-iis/tests/configs/microsoft-iis.config
+          echo "Waiting for sample app to generate metrics..."
+          sleep $SAMPLE_APP_SETUP_TIME
+
+      - name: Validate metrics
+        run: |
+          source ~/.vars
+          ./ops/scripts/test_sample_app_metrics.sh microsoft-iis localhost:9009
+
+      - name: Report metrics with nonzero values and logs by site
+        if: always()
+        run: |
+          source ~/.vars
+          total=0; nonzero=0
+          while read -r m || [ -n "$m" ]; do
+            [ "$m" = up ] && continue
+            total=$((total+1))
+            v=$(curl -s http://localhost:9009/prometheus/api/v1/query --data-urlencode "query=max_over_time(sum(${m}{job=\"integrations/iis\"})[15m:30s])" | jq -r '.data.result[0].value[1] // "absent"')
+            echo "$v $m"
+            case "$v" in absent|0) ;; *) nonzero=$((nonzero+1));; esac
+          done < sample-apps/microsoft-iis/tests/metrics/microsoft-iis
+          echo "Metrics with a nonzero value: $nonzero of $total"
+          curl -s -G http://localhost:3100/loki/api/v1/query --data-urlencode 'query=sum by (site) (count_over_time({job="integrations/iis"}[15m]))' | jq -r '.data.result[] | "\(.metric.site) \(.value[1]) log lines"'
+
+      - name: Report IIS state
+        if: always()
+        shell: powershell
+        run: |
+          Import-Module WebAdministration
+          Get-Website | Format-Table -AutoSize Id, Name, State
+          Get-ChildItem IIS:\AppPools | Format-Table -AutoSize Name, State
+          Get-ChildItem C:\inetpub\logs\LogFiles -Recurse -File | Format-Table -AutoSize FullName, Length
+          Get-WinEvent -LogName System -MaxEvents 300 | Where-Object ProviderName -eq "Microsoft-Windows-WAS" | Select-Object -First 30 | Format-List TimeCreated, Id, Message
+
+      - name: Cleanup Docker containers
+        if: always()
+        run: |
+          source ~/.vars
+          
+          echo "Cleaning up Docker containers..."
+          
+          # Navigate to the docker-compose directory and stop services
+          cd ops/qa/dbs
+          docker compose down
+          
+          echo "Cleanup completed"
+
+      - name: Stop Alloy service
+        if: always()
+        shell: powershell
+        run: |
+          cd sample-apps/microsoft-iis
+          .\scripts\stop_alloy.ps1
