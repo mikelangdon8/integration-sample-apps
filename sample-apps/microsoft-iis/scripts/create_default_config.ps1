@@ -30,7 +30,9 @@ $sites = @(
     @{ Name = "web-crash";     Id = 4 },
     @{ Name = "web-hang";      Id = 5 },
     @{ Name = "web-stuck";     Id = 6 },
-    @{ Name = "web-badid";     Id = 7 }
+    @{ Name = "web-badid";     Id = 7 },
+    @{ Name = "web-slowstart"; Id = 8 },
+    @{ Name = "web-classic";   Id = 9 }
 )
 
 $pathTargets = ($sites | ForEach-Object {

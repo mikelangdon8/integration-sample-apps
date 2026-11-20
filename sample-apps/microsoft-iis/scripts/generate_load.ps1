@@ -62,11 +62,12 @@ $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -Script
 }
 
 Write-Host "Starting slow requests, so worker threads are busy when Alloy collects..."
-for ($n = 1; $n -le 6; $n++) {
-    $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -ScriptBlock {
-        param($EndTime)
+for ($n = 1; $n -le 8; $n++) {
+    $port = if ($n % 2) { 8081 } else { 8088 }
+    $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime, $port -ScriptBlock {
+        param($EndTime, $Port)
         while ((Get-Date) -lt $EndTime) {
-            Invoke-Http -Method GET -Url "http://localhost:8081/slow.aspx" -TimeoutMs 15000 | Out-Null
+            Invoke-Http -Method GET -Url "http://localhost:$Port/slow.aspx" -TimeoutMs 15000 | Out-Null
             Start-Sleep -Milliseconds 100
         }
     }
@@ -127,6 +128,24 @@ for ($n = 1; $n -le 4; $n++) {
     }
 }
 
+Write-Host "Suspending each new pool-slowstart worker as soon as it appears..."
+$jobs += Start-Job -ArgumentList $endTime -ScriptBlock {
+    param($EndTime)
+    Add-Type -Namespace SampleApp -Name Native -MemberDefinition '[DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr processHandle);'
+    $seen = @{}
+    while ((Get-Date) -lt $EndTime) {
+        foreach ($process in Get-Process -Name w3wp -ErrorAction SilentlyContinue) {
+            if ($seen.ContainsKey($process.Id)) { continue }
+            $seen[$process.Id] = $true
+            $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$($process.Id)").CommandLine
+            if ($commandLine -match '-ap "pool-slowstart"') {
+                [SampleApp.Native]::NtSuspendProcess($process.Handle) | Out-Null
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
+
 Add-Type -Namespace SampleApp -Name Native -MemberDefinition '[DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr processHandle);'
 . $helpers
 
@@ -147,6 +166,8 @@ while ((Get-Date) -lt $endTime) {
     Invoke-Http -Method GET -Url "http://localhost:8085/" | Out-Null
     Get-PoolWorker "pool-stuck" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
     Restart-WebAppPool -Name "pool-stuck" -ErrorAction SilentlyContinue
+
+    Invoke-Http -Method GET -Url "http://localhost:8087/" -TimeoutMs 2000 | Out-Null
 
     if ((Get-WebAppPoolState -Name "pool-badid").Value -ne "Started") {
         Start-WebAppPool -Name "pool-badid" -ErrorAction SilentlyContinue
