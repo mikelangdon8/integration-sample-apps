@@ -10,12 +10,11 @@ $siteSource = Join-Path $PSScriptRoot "..\site"
 
 # Each site has its own application pool, so each pool's metrics come from one kind of load.
 $sites = @(
-    @{ Name = "web-main";      Id = 2; Port = 8081; Pool = "pool-main" },
-    @{ Name = "web-throttled"; Id = 3; Port = 8082; Pool = "pool-throttled" },
-    @{ Name = "web-crash";     Id = 4; Port = 8083; Pool = "pool-crash" },
-    @{ Name = "web-hang";      Id = 5; Port = 8084; Pool = "pool-hang" },
-    @{ Name = "web-stuck";     Id = 6; Port = 8085; Pool = "pool-stuck" },
-    @{ Name = "web-badid";     Id = 7; Port = 8086; Pool = "pool-badid" }
+    @{ Name = "web-main";  Id = 2; Port = 8081; Pool = "pool-main" },
+    @{ Name = "web-crash"; Id = 3; Port = 8082; Pool = "pool-crash" },
+    @{ Name = "web-hang";  Id = 4; Port = 8083; Pool = "pool-hang" },
+    @{ Name = "web-stuck"; Id = 5; Port = 8084; Pool = "pool-stuck" },
+    @{ Name = "web-badid"; Id = 6; Port = 8085; Pool = "pool-badid" }
 )
 
 foreach ($site in $sites) {
@@ -31,11 +30,6 @@ foreach ($site in $sites) {
         New-Website -Name $site.Name -Id $site.Id -Port $site.Port -PhysicalPath $path -ApplicationPool $site.Pool | Out-Null
     }
 }
-
-# Throttling web-throttled's bandwidth makes IIS block and reject async I/O requests under load.
-$throttledPath = Join-Path $ContentRoot "web-throttled\download.bin"
-fsutil file createnew $throttledPath 4194304 | Out-Null
-Set-ItemProperty "IIS:\Sites\web-throttled" -Name limits.maxBandwidth -Value 65536
 
 # The failure pools would otherwise be stopped by rapid-fail protection after five failures.
 foreach ($pool in "pool-crash", "pool-hang", "pool-stuck", "pool-badid") {

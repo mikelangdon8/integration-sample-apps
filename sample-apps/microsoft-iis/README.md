@@ -1,59 +1,82 @@
 # Microsoft IIS sample app
 
-This sample app installs Microsoft IIS on Windows Server, creates sites that produce the metrics and logs the Microsoft IIS integration reads, and collects them with Alloy using the integration's snippets. It runs in GitHub Actions on Windows Server 2022 and 2025 runners, with Mimir and Loki in Docker inside WSL.
+This sample app installs Microsoft IIS on Windows Server, creates sites whose load produces the metrics and logs the Microsoft IIS integration reads, and collects them with Alloy using the integration's snippets. It uses PowerShell scripts and Make commands, and runs in GitHub Actions on Windows Server 2022 and 2025.
 
 ## Prerequisites
 
-- Windows Server 2022 or 2025, the versions the sample app's CI tests, with administrator rights
+Before you begin, ensure you have the following:
+
+- Windows Server 2022 or 2025, with administrator rights
 - PowerShell 5.1 or later
-- Internet access to download Alloy
+- GNU Make, for the Make commands
+- Internet connectivity for downloading Alloy
 - A Prometheus-compatible endpoint and a Loki endpoint for Alloy to write to
 
-## Quick start
+## Quick Start for new users
 
-1. Clone the repository and open the sample app's directory:
+To get started with the sample app, follow these steps from an administrator shell:
 
+1. **Clone the repository**:
    ```sh
    git clone https://github.com/grafana/integration-sample-apps.git
    cd integration-sample-apps/sample-apps/microsoft-iis
    ```
 
-2. Set `PROMETHEUS_INSTANCE` and `LOKI_INSTANCE` in the `Makefile` to your endpoints.
+2. **Run the sample app**:
+   Use `make run PROMETHEUS_INSTANCE=<your-prometheus-host:port> LOKI_INSTANCE=<your-loki-host:port>` to install IIS, create the sites, install and start Alloy, and generate load for 10 minutes.
 
-3. Run `make run` from an administrator shell. It installs IIS, creates the sites, installs and starts Alloy, and generates load for 10 minutes.
-
-4. Run `make stop` to stop Alloy, and `make clean` to remove the generated Alloy configuration.
+3. **Stop and clean up**:
+   Use `make stop` to stop Alloy and `make clean` to remove the generated Alloy configuration.
 
 ## Make commands
 
-- `make run`: runs every step below in order.
-- `make install-iis`: installs IIS with ASP.NET 4.8, WebSocket, WebDAV and Windows authentication support.
-- `make setup-sites`: creates the application pools and sites.
-- `make defaultconfig`: writes `config/alloy-config.alloy` from the integration's snippets.
-- `make install-alloy`: installs the latest Alloy as a Windows service.
-- `make configure-alloy`: copies `config/alloy-config.alloy` to the Alloy service.
-- `make start-alloy`: starts the Alloy service.
-- `make generate-load`: generates load for 10 minutes.
-- `make stop`: stops the Alloy service.
-- `make clean`: removes `config/alloy-config.alloy`.
+- `make run`: Runs every command below in order, from `install-iis` to `generate-load`.
+- `make install-iis`: Installs IIS with ASP.NET 4.8, WebSocket, WebDAV and Windows authentication support.
+- `make setup-sites`: Creates the sites and their application pools.
+- `make defaultconfig`: Writes `config/alloy-config.alloy` from the integration's snippets.
+- `make install-alloy`: Installs the latest Alloy as a Windows service.
+- `make configure-alloy`: Copies `config/alloy-config.alloy` to the Alloy service.
+- `make start-alloy`: Starts the Alloy service.
+- `make generate-load`: Generates load for 10 minutes.
+- `make stop`: Stops the Alloy service.
+- `make clean`: Removes `config/alloy-config.alloy`.
 
-## Sites
+## Make variables
 
-Each site has its own application pool, so each pool's metrics come from one kind of load.
+- `PROMETHEUS_INSTANCE`: `host:port` of the Prometheus-compatible endpoint. Alloy writes to `http://<host:port>/api/v1/push`.
+- `LOKI_INSTANCE`: `host:port` of the Loki endpoint. Alloy writes to `http://<host:port>/loki/api/v1/push`.
 
-| Site | Port | Application pool | Load |
-|---|---|---|---|
-| `web-main` | 8081 | `pool-main` | Static and ASP.NET pages, 404 and 500 responses, slow requests, WebSocket connections, WebDAV uploads and writes to a locked file |
-| `web-throttled` | 8082 | `pool-throttled` | Downloads that exceed the site's 64 KB/s bandwidth limit |
-| `web-crash` | 8083 | `pool-crash` | Its worker process is killed |
-| `web-hang` | 8084 | `pool-hang` | Its worker process is suspended until WAS pings fail |
-| `web-stuck` | 8085 | `pool-stuck` | Its worker process is suspended, then the pool recycles |
-| `web-badid` | 8086 | `pool-badid` | The pool runs as a user that doesn't exist, so its worker processes fail to start |
+## Default configuration variables
 
-Every site except `web-throttled` also gets `web-main`'s page requests and 404 and 500 responses.
+`scripts/create_default_config.ps1` takes these parameters. `make defaultconfig` sets the two URLs from the Make variables.
 
-## Validating the sample app
+- `PrometheusUrl`, `LokiUrl`: Push URLs for metrics and logs.
+- `PrometheusUser`, `PrometheusPass`, `LokiUser`, `LokiPass`: Basic auth credentials. Empty by default, which sends no credentials.
 
-- Check that Alloy is running with `Get-Service -Name Alloy`.
-- Open `http://localhost:12345` to see Alloy's components and their health.
-- Check that IIS writes access logs under `C:\inetpub\logs\LogFiles\W3SVC<site-id>\`.
+## Validating services
+
+### Alloy
+- **Check service status**: Confirm that Alloy is running with `Get-Service -Name Alloy`.
+- **Review configuration**: Verify the configuration in `C:\Program Files\GrafanaLabs\Alloy\config.alloy`.
+- **Check components**: Open `http://localhost:12345` to see each component's health.
+
+### Microsoft IIS
+- **Check sites**: Confirm that the sites are started with `Get-Website`.
+- **Check logs**: IIS writes each site's access log under `C:\inetpub\logs\LogFiles\W3SVC<site-id>\`.
+
+Each site has its own application pool, so each pool's metrics come from one kind of load:
+
+| Site | Site ID | Port | Application pool | Load |
+|---|---|---|---|---|
+| `web-main` | 2 | 8081 | `pool-main` | Page requests, 404 and 500 responses, WebSocket connections, WebDAV uploads and writes to a locked file |
+| `web-crash` | 3 | 8082 | `pool-crash` | Page requests, and its worker process is killed |
+| `web-hang` | 4 | 8083 | `pool-hang` | Page requests, and its worker process is suspended until WAS pings fail |
+| `web-stuck` | 5 | 8084 | `pool-stuck` | Page requests, and its worker process is suspended before the pool recycles |
+| `web-badid` | 6 | 8085 | `pool-badid` | Runs as a user that doesn't exist, so WAS disables the pool |
+
+The sample app can't produce data for five of the metrics the integration reads:
+
+- `windows_iis_blocked_async_io_requests_total` and `windows_iis_rejected_async_io_requests_total`: Microsoft documents these counters as always zero since IIS 6.
+- `windows_iis_server_metadata_cache_hits_total`: Stays at zero on IIS 10, while `windows_iis_worker_metadata_cache_hits_total` counts the same cache's hits.
+- `windows_iis_total_worker_process_startup_failures`: Counts only a worker process that starts but doesn't report to WAS within the pool's startup time limit.
+- `windows_iis_worker_threads`: ASP.NET hands each request off IIS's worker threads, so the count stays near zero.

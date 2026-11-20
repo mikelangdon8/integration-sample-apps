@@ -25,12 +25,11 @@ function Get-BasicAuth([string]$user, [string]$pass) {
 
 # These match the sites that setup_sites.ps1 creates.
 $sites = @(
-    @{ Name = "web-main";      Id = 2 },
-    @{ Name = "web-throttled"; Id = 3 },
-    @{ Name = "web-crash";     Id = 4 },
-    @{ Name = "web-hang";      Id = 5 },
-    @{ Name = "web-stuck";     Id = 6 },
-    @{ Name = "web-badid";     Id = 7 }
+    @{ Name = "web-main";  Id = 2 },
+    @{ Name = "web-crash"; Id = 3 },
+    @{ Name = "web-hang";  Id = 4 },
+    @{ Name = "web-stuck"; Id = 5 },
+    @{ Name = "web-badid"; Id = 6 }
 )
 
 $pathTargets = ($sites | ForEach-Object {

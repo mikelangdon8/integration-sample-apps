@@ -50,7 +50,7 @@ $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -Script
     $i = 0
     while ((Get-Date) -lt $EndTime) {
         $i++
-        foreach ($port in 8081, 8083, 8084, 8085, 8086) {
+        foreach ($port in 8081, 8082, 8083, 8084, 8085) {
             foreach ($path in "/", "/static/site.css", "/static/logo.svg", "/cached.aspx", "/missing-$i.html", "/broken/") {
                 Invoke-Http -Method GET -Url "http://localhost:$port$path" | Out-Null
             }
@@ -58,17 +58,6 @@ $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -Script
             Invoke-Http -Method POST -Url "http://localhost:$port/cached.aspx" -Body "<form />" | Out-Null
         }
         Start-Sleep -Milliseconds 500
-    }
-}
-
-Write-Host "Starting slow requests, so worker threads are busy when Alloy collects..."
-for ($n = 1; $n -le 6; $n++) {
-    $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -ScriptBlock {
-        param($EndTime)
-        while ((Get-Date) -lt $EndTime) {
-            Invoke-Http -Method GET -Url "http://localhost:8081/slow.aspx" -TimeoutMs 15000 | Out-Null
-            Start-Sleep -Milliseconds 100
-        }
     }
 }
 
@@ -115,18 +104,6 @@ $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -Script
     }
 }
 
-Write-Host "Starting downloads from the bandwidth-throttled site..."
-# A download that IIS rejects returns at once, so each loop pauses before the next attempt.
-for ($n = 1; $n -le 4; $n++) {
-    $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -ScriptBlock {
-        param($EndTime)
-        while ((Get-Date) -lt $EndTime) {
-            Invoke-Http -Method GET -Url "http://localhost:8082/download.bin" -TimeoutMs 20000 | Out-Null
-            Start-Sleep -Seconds 1
-        }
-    }
-}
-
 Add-Type -Namespace SampleApp -Name Native -MemberDefinition '[DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr processHandle);'
 . $helpers
 
@@ -138,20 +115,20 @@ function Get-PoolWorker([string]$pool) {
 
 Write-Host "Causing worker process failures every $FailureIntervalSeconds seconds..."
 while ((Get-Date) -lt $endTime) {
-    Invoke-Http -Method GET -Url "http://localhost:8083/" | Out-Null
+    Invoke-Http -Method GET -Url "http://localhost:8082/" | Out-Null
     Get-PoolWorker "pool-crash" | Stop-Process -Force -ErrorAction SilentlyContinue
 
-    Invoke-Http -Method GET -Url "http://localhost:8084/" | Out-Null
+    Invoke-Http -Method GET -Url "http://localhost:8083/" | Out-Null
     Get-PoolWorker "pool-hang" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
 
-    Invoke-Http -Method GET -Url "http://localhost:8085/" | Out-Null
+    Invoke-Http -Method GET -Url "http://localhost:8084/" | Out-Null
     Get-PoolWorker "pool-stuck" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
     Restart-WebAppPool -Name "pool-stuck" -ErrorAction SilentlyContinue
 
     if ((Get-WebAppPoolState -Name "pool-badid").Value -ne "Started") {
         Start-WebAppPool -Name "pool-badid" -ErrorAction SilentlyContinue
     }
-    Invoke-Http -Method GET -Url "http://localhost:8086/" | Out-Null
+    Invoke-Http -Method GET -Url "http://localhost:8085/" | Out-Null
 
     Start-Sleep -Seconds $FailureIntervalSeconds
 }
