@@ -55,7 +55,7 @@ Set-ItemProperty "IIS:\AppPools\pool-stuck" -Name processModel.shutdownTimeLimit
 
 # A pool-slowstart worker is suspended as soon as it appears, so it can't finish starting
 # within the time limit, and WAS counts a startup failure.
-Set-ItemProperty "IIS:\AppPools\pool-slowstart" -Name startupTimeLimit -Value "00:00:05"
+Set-ItemProperty "IIS:\AppPools\pool-slowstart" -Name processModel.startupTimeLimit -Value "00:00:05"
 
 # In the Classic pipeline, ASP.NET requests hold IIS worker threads while they run.
 Set-ItemProperty "IIS:\AppPools\pool-classic" -Name managedPipelineMode -Value Classic
