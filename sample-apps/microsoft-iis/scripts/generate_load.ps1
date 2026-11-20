@@ -57,7 +57,7 @@ $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -Script
             Invoke-Http -Method HEAD -Url "http://localhost:$port/" | Out-Null
             Invoke-Http -Method POST -Url "http://localhost:$port/cached.aspx" -Body "<form />" | Out-Null
         }
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 500
     }
 }
 
@@ -67,6 +67,7 @@ for ($n = 1; $n -le 6; $n++) {
         param($EndTime)
         while ((Get-Date) -lt $EndTime) {
             Invoke-Http -Method GET -Url "http://localhost:8081/slow.aspx" -TimeoutMs 15000 | Out-Null
+            Start-Sleep -Milliseconds 100
         }
     }
 }
@@ -115,11 +116,13 @@ $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -Script
 }
 
 Write-Host "Starting downloads from the bandwidth-throttled site..."
-for ($n = 1; $n -le 8; $n++) {
+# A download that IIS rejects returns at once, so each loop pauses before the next attempt.
+for ($n = 1; $n -le 4; $n++) {
     $jobs += Start-Job -InitializationScript $helpers -ArgumentList $endTime -ScriptBlock {
         param($EndTime)
         while ((Get-Date) -lt $EndTime) {
             Invoke-Http -Method GET -Url "http://localhost:8082/download.bin" -TimeoutMs 20000 | Out-Null
+            Start-Sleep -Seconds 1
         }
     }
 }

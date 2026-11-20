@@ -213,7 +213,9 @@ jobs:
             case "$v" in absent|0) ;; *) nonzero=$((nonzero+1));; esac
           done < sample-apps/microsoft-iis/tests/metrics/microsoft-iis
           echo "Metrics with a nonzero value: $nonzero of $total"
-          curl -s -G http://localhost:3100/loki/api/v1/query --data-urlencode 'query=sum by (site) (count_over_time({job="integrations/iis"}[15m]))' | jq -r '.data.result[] | "\(.metric.site) \(.value[1]) log lines"'
+          curl -s -G http://localhost:3100/loki/api/v1/query --data-urlencode 'query=sum by (site) (count_over_time({job="integrations/iis"}[15m]))' | jq -r '.data.result[] | "\(.metric.site) \(.value[1]) log lines"' || echo "Loki did not answer"
+          docker ps -a || true
+          free -m || true
 
       - name: Report IIS state
         if: always()
@@ -222,7 +224,13 @@ jobs:
           Import-Module WebAdministration
           Get-Website | Format-Table -AutoSize Id, Name, State
           Get-ChildItem IIS:\AppPools | Format-Table -AutoSize Name, State
-          Get-ChildItem C:\inetpub\logs\LogFiles -Recurse -File | Format-Table -AutoSize FullName, Length
+          Get-ChildItem C:\inetpub\logs\LogFiles -Recurse -File | ForEach-Object {
+            $statuses = Get-Content $_.FullName -Tail 5000 | Where-Object { $_ -notlike "#*" } | ForEach-Object { ($_ -split " ")[11] } | Group-Object | ForEach-Object { "$($_.Name):$($_.Count)" }
+            "$($_.FullName) $($_.Length) bytes, last 5000 statuses $($statuses -join ' ')"
+          }
+          (Invoke-WebRequest -Uri http://localhost:12345/metrics -UseBasicParsing).Content -split "`n" | Where-Object { $_ -match "^(prometheus_remote_storage_samples_(total|failed_total|pending)|prometheus_remote_storage_highest_timestamp_in_seconds|loki_write_(sent_entries_total|dropped_entries_total|request_duration_seconds_count))" }
+          Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 2 -MaxSamples 3 | ForEach-Object { $_.CounterSamples.CookedValue }
+          Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU, WorkingSet64 | Format-Table -AutoSize
           Get-WinEvent -LogName System -MaxEvents 300 | Where-Object ProviderName -eq "Microsoft-Windows-WAS" | Select-Object -First 30 | Format-List TimeCreated, Id, Message
 
       - name: Cleanup Docker containers
