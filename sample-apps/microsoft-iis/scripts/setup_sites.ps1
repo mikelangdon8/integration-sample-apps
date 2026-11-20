@@ -15,9 +15,7 @@ $sites = @(
     @{ Name = "web-crash";     Id = 4; Port = 8083; Pool = "pool-crash" },
     @{ Name = "web-hang";      Id = 5; Port = 8084; Pool = "pool-hang" },
     @{ Name = "web-stuck";     Id = 6; Port = 8085; Pool = "pool-stuck" },
-    @{ Name = "web-badid";     Id = 7; Port = 8086; Pool = "pool-badid" },
-    @{ Name = "web-slowstart"; Id = 8; Port = 8087; Pool = "pool-slowstart" },
-    @{ Name = "web-classic";   Id = 9; Port = 8088; Pool = "pool-classic" }
+    @{ Name = "web-badid";     Id = 7; Port = 8086; Pool = "pool-badid" }
 )
 
 foreach ($site in $sites) {
@@ -40,7 +38,7 @@ fsutil file createnew $throttledPath 4194304 | Out-Null
 Set-ItemProperty "IIS:\Sites\web-throttled" -Name limits.maxBandwidth -Value 65536
 
 # The failure pools would otherwise be stopped by rapid-fail protection after five failures.
-foreach ($pool in "pool-crash", "pool-hang", "pool-stuck", "pool-badid", "pool-slowstart") {
+foreach ($pool in "pool-crash", "pool-hang", "pool-stuck", "pool-badid") {
     Set-ItemProperty "IIS:\AppPools\$pool" -Name failure.rapidFailProtection -Value $false
 }
 
@@ -52,13 +50,6 @@ Set-ItemProperty "IIS:\AppPools\pool-hang" -Name processModel.pingResponseTime -
 # shutdown failure. Pinging is off, so a ping failure doesn't end the worker first.
 Set-ItemProperty "IIS:\AppPools\pool-stuck" -Name processModel.pingingEnabled -Value $false
 Set-ItemProperty "IIS:\AppPools\pool-stuck" -Name processModel.shutdownTimeLimit -Value "00:00:05"
-
-# A pool-slowstart worker is suspended as soon as it appears, so it can't finish starting
-# within the time limit, and WAS counts a startup failure.
-Set-ItemProperty "IIS:\AppPools\pool-slowstart" -Name processModel.startupTimeLimit -Value "00:00:05"
-
-# In the Classic pipeline, ASP.NET requests hold IIS worker threads while they run.
-Set-ItemProperty "IIS:\AppPools\pool-classic" -Name managedPipelineMode -Value Classic
 
 # pool-badid runs as a user that doesn't exist, so WAS disables the pool on its first request.
 Set-ItemProperty "IIS:\AppPools\pool-badid" -Name processModel -Value @{
