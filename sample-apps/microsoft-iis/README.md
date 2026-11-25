@@ -22,10 +22,13 @@ To get started with the sample app, follow these steps from an administrator she
    cd integration-sample-apps/sample-apps/microsoft-iis
    ```
 
-2. **Run the sample app**:
-   Use `make run PROMETHEUS_INSTANCE=<your-prometheus-host:port> LOKI_INSTANCE=<your-loki-host:port>` to install IIS, create the sites, install and start Alloy, and generate load for 10 minutes.
+2. **Set up default config**:
+   Execute `make defaultconfig PROMETHEUS_INSTANCE=<your-prometheus-host:port> LOKI_INSTANCE=<your-loki-host:port>` to create `config/alloy-config.alloy`. Modify it to add credentials for your endpoints.
 
-3. **Stop and clean up**:
+3. **Run the sample app**:
+   Use `make run` to install IIS, create the sites, install and start Alloy, and generate load for 10 minutes.
+
+4. **Stop and clean up**:
    Use `make stop` to stop Alloy and `make clean` to remove the generated Alloy configuration.
 
 ## Make commands
@@ -33,7 +36,7 @@ To get started with the sample app, follow these steps from an administrator she
 - `make run`: Runs every command below in order, from `install-iis` to `generate-load`.
 - `make install-iis`: Installs IIS with ASP.NET 4.8, WebSocket, WebDAV and Windows authentication support.
 - `make setup-sites`: Creates the sites and their application pools.
-- `make defaultconfig`: Writes `config/alloy-config.alloy` from the integration's snippets.
+- `make defaultconfig`: Creates `config/alloy-config.alloy` from the integration's snippets, if it does not already exist. `make run` creates it when missing.
 - `make install-alloy`: Installs the latest Alloy as a Windows service.
 - `make configure-alloy`: Copies `config/alloy-config.alloy` to the Alloy service.
 - `make start-alloy`: Starts the Alloy service.
@@ -43,26 +46,35 @@ To get started with the sample app, follow these steps from an administrator she
 
 ## Make variables
 
+Set these on the command line, e.g. `make defaultconfig PROMETHEUS_INSTANCE=mimir.example.com:9009`. They apply only when `make defaultconfig` creates the configuration file.
+
 - `PROMETHEUS_INSTANCE`: `host:port` of the Prometheus-compatible endpoint. Alloy writes to `http://<host:port>/api/v1/push`.
 - `LOKI_INSTANCE`: `host:port` of the Loki endpoint. Alloy writes to `http://<host:port>/loki/api/v1/push`.
 
 ## Default configuration variables
 
-`scripts/create_default_config.ps1` takes these parameters. `make defaultconfig` sets the two URLs from the Make variables.
+`config/alloy-config.alloy` holds the endpoints Alloy writes to:
 
-- `PrometheusUrl`, `LokiUrl`: Push URLs for metrics and logs.
-- `PrometheusUser`, `PrometheusPass`, `LokiUser`, `LokiPass`: Basic auth credentials. Empty by default, which sends no credentials.
+- `prometheus.remote_write "metrics_service"`: The `url` of the Prometheus-compatible push endpoint.
+- `loki.write "grafana_cloud_loki"`: The `url` of the Loki push endpoint.
+- Credentials: None by default. Add a `basic_auth` block with `username` and `password` inside an `endpoint` block to send them.
 
 ## Validating services
 
 ### Alloy
-- **Check service status**: Confirm that Alloy is running with `Get-Service -Name Alloy`.
-- **Review configuration**: Verify the configuration in `C:\Program Files\GrafanaLabs\Alloy\config.alloy`.
+- **Check service status**: Confirm that Alloy is running.
+  ```powershell
+  Get-Service -Name Alloy
+  ```
+- **Review configuration**: Verify the configuration in `C:\Program Files\GrafanaLabs\Alloy\config.alloy` is correct.
 - **Check components**: Open `http://localhost:12345` to see each component's health.
 
 ### Microsoft IIS
-- **Check sites**: Confirm that the sites are started with `Get-Website`.
-- **Check logs**: IIS writes each site's access log under `C:\inetpub\logs\LogFiles\W3SVC<site-id>\`.
+- **Check sites**: Confirm that the sites are started.
+  ```powershell
+  Get-Website
+  ```
+- **Check logs**: Review each site's access log under `C:\inetpub\logs\LogFiles\W3SVC<site-id>\`.
 
 Each site has its own application pool, so each pool's metrics come from one kind of load:
 
@@ -74,7 +86,7 @@ Each site has its own application pool, so each pool's metrics come from one kin
 | `web-stuck` | 5 | 8084 | `pool-stuck` | Page requests, and its worker process is suspended before the pool recycles |
 | `web-badid` | 6 | 8085 | `pool-badid` | Runs as a user that doesn't exist, so WAS disables the pool |
 
-The sample app can't produce data for five of the metrics the integration reads:
+The sample app does not produce data for five of the metrics the integration reads:
 
 - `windows_iis_blocked_async_io_requests_total` and `windows_iis_rejected_async_io_requests_total`: Microsoft documents these counters as always zero since IIS 6.
 - `windows_iis_server_metadata_cache_hits_total`: Stays at zero on IIS 10, while `windows_iis_worker_metadata_cache_hits_total` counts the same cache's hits.

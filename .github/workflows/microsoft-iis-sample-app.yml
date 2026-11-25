@@ -100,6 +100,22 @@ jobs:
           sudo apt-get install -y jq
           echo "jq installed successfully"
 
+      - name: Test the Makefile
+        shell: powershell
+        run: |
+          choco install make -y --no-progress | Out-Null
+          cd sample-apps/microsoft-iis
+          make defaultconfig PROMETHEUS_INSTANCE=first.example:9009 LOKI_INSTANCE=first.example:3100
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Add-Content -Path config/alloy-config.alloy -Value "// edited by hand"
+          make defaultconfig PROMETHEUS_INSTANCE=second.example:9009 LOKI_INSTANCE=second.example:3100
+          $content = Get-Content -Raw config/alloy-config.alloy
+          if ($content -notmatch "edited by hand" -or $content -notmatch "first.example:9009") { Write-Error "make defaultconfig overwrote the edited file"; exit 1 }
+          Write-Host "make defaultconfig kept the edited file."
+          make clean
+          if (Test-Path config/alloy-config.alloy) { Write-Error "make clean left the file"; exit 1 }
+          Write-Host "make clean removed the file."
+
       - name: Run Microsoft IIS sample app
         shell: powershell
         run: |

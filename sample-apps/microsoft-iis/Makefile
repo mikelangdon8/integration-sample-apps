@@ -1,5 +1,6 @@
 LOKI_INSTANCE := your-loki-instance:3100
 PROMETHEUS_INSTANCE := your-prometheus-instance:9009
+CONFIG_FILE := config/alloy-config.alloy
 
 .PHONY: run stop clean defaultconfig install-iis setup-sites install-alloy configure-alloy start-alloy generate-load
 
@@ -10,9 +11,11 @@ stop:
 	@powershell -ExecutionPolicy Bypass -File "scripts/stop_alloy.ps1"
 
 clean:
-	@if exist "config\alloy-config.alloy" del "config\alloy-config.alloy"
+	@powershell -NoProfile -Command "Remove-Item -Path '$(CONFIG_FILE)' -ErrorAction SilentlyContinue"
 
-defaultconfig:
+defaultconfig: $(CONFIG_FILE)
+
+$(CONFIG_FILE):
 	@powershell -ExecutionPolicy Bypass -File "scripts/create_default_config.ps1" -LokiUrl "http://$(LOKI_INSTANCE)/loki/api/v1/push" -PrometheusUrl "http://$(PROMETHEUS_INSTANCE)/api/v1/push"
 
 install-iis:
