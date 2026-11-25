@@ -121,24 +121,12 @@ jobs:
         run: |
           cd sample-apps/microsoft-iis
 
-          .\scripts\install_iis.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-
-          .\scripts\setup_sites.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-
-          .\scripts\install_alloy.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-
           .\scripts\create_default_config.ps1 -LokiUrl "http://localhost:3100/loki/api/v1/push" -PrometheusUrl "http://localhost:9009/api/v1/push"
-          .\scripts\configure_alloy.ps1
 
-          # Databases come up later, so early pushes buffer in the WAL
-          .\scripts\start_alloy.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-
-          # The load runs in its own process, so it continues through the metrics validation
-          Start-Process -FilePath powershell -ArgumentList "-ExecutionPolicy Bypass -File scripts\generate_load.ps1 -DurationSeconds 1200" -WindowStyle Hidden
+          # Databases come up later, so early pushes buffer in the WAL.
+          # The load runs in its own process, so it continues through the metrics validation.
+          .\scripts\run.ps1 -LoadInBackground -LoadDurationSeconds 1200
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Start after the Windows setup, WSL2 stops its VM and these containers when idle
       - name: Start Mimir and Loki containers

@@ -7,8 +7,8 @@ POWERSHELL := $(if $(wildcard $(SystemRoot)/Sysnative/WindowsPowerShell/v1.0/pow
 
 .PHONY: run stop clean defaultconfig install-iis setup-sites install-alloy configure-alloy start-alloy generate-load
 
-run: install-iis setup-sites defaultconfig install-alloy configure-alloy start-alloy generate-load
-	@echo "Microsoft IIS sample app is running. Alloy should be collecting metrics and logs."
+run: defaultconfig
+	@"$(POWERSHELL)" -ExecutionPolicy Bypass -File "scripts/run.ps1"
 
 stop:
 	@"$(POWERSHELL)" -ExecutionPolicy Bypass -File "scripts/stop_alloy.ps1"

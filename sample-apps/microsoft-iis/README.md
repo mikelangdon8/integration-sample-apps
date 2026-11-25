@@ -40,7 +40,7 @@ To get started with the sample app, follow these steps from an administrator she
 
 ## Make commands
 
-- `make run`: Runs every command below in order, from `install-iis` to `generate-load`.
+- `make run`: Runs `defaultconfig`, then `scripts/run.ps1`. The script runs the other commands from `install-iis` to `generate-load` in order and stops at the first one that fails.
 - `make install-iis`: Installs IIS with ASP.NET 4.8, WebSocket, WebDAV and Windows authentication support.
 - `make setup-sites`: Creates the sites and their application pools.
 - `make defaultconfig`: Creates `config/alloy-config.alloy` from the integration's snippets, if it does not already exist. `make run` creates it when missing.
