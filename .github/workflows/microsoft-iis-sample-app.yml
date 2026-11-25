@@ -216,6 +216,17 @@ jobs:
           source ~/.vars
           ./ops/scripts/test_sample_app_metrics.sh microsoft-iis localhost:9009
 
+      # A worker series with gaps has fewer samples in the window than a non-worker series
+      - name: Compare worker and non-worker sample counts
+        if: always()
+        run: |
+          source ~/.vars
+          for q in 'count_over_time(windows_iis_worker_requests_total{job="integrations/iis",app="pool-main"}[5m])' \
+                   'count_over_time(windows_iis_requests_total{job="integrations/iis",site="web-main"}[5m])'; do
+            v=$(curl -s http://localhost:9009/prometheus/api/v1/query --data-urlencode "query=$q" | jq -r '[.data.result[].value[1]] | join(",") | if . == "" then "absent" else . end')
+            echo "$v $q"
+          done
+
       - name: Report metrics with nonzero values and logs by site
         if: always()
         run: |

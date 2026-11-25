@@ -1,7 +1,8 @@
 # Generate the load that the Microsoft IIS integration's panels and alerts read
 param(
     [int]$DurationSeconds = 600,
-    [int]$FailureIntervalSeconds = 40
+    [int]$FailureIntervalSeconds = 40,
+    [int]$SuspensionCycles = 3
 )
 
 $ErrorActionPreference = "Continue"
@@ -114,16 +115,23 @@ function Get-PoolWorker([string]$pool) {
 }
 
 Write-Host "Causing worker process failures every $FailureIntervalSeconds seconds..."
+$cycle = 0
 while ((Get-Date) -lt $endTime) {
+    $cycle++
     Invoke-Http -Method GET -Url "http://localhost:8082/" | Out-Null
     Get-PoolWorker "pool-crash" | Stop-Process -Force -ErrorAction SilentlyContinue
 
-    Invoke-Http -Method GET -Url "http://localhost:8083/" | Out-Null
-    Get-PoolWorker "pool-hang" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
+    # A suspended worker can stall IIS's W3SVC counter refresh, and the exporter then returns
+    # no worker metrics for that read. Suspending only in the first cycles keeps the later
+    # reads, which the metrics checks see, complete.
+    if ($cycle -le $SuspensionCycles) {
+        Invoke-Http -Method GET -Url "http://localhost:8083/" | Out-Null
+        Get-PoolWorker "pool-hang" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
 
-    Invoke-Http -Method GET -Url "http://localhost:8084/" | Out-Null
-    Get-PoolWorker "pool-stuck" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
-    Restart-WebAppPool -Name "pool-stuck" -ErrorAction SilentlyContinue
+        Invoke-Http -Method GET -Url "http://localhost:8084/" | Out-Null
+        Get-PoolWorker "pool-stuck" | ForEach-Object { [SampleApp.Native]::NtSuspendProcess($_.Handle) | Out-Null }
+        Restart-WebAppPool -Name "pool-stuck" -ErrorAction SilentlyContinue
+    }
 
     if ((Get-WebAppPoolState -Name "pool-badid").Value -ne "Started") {
         Start-WebAppPool -Name "pool-badid" -ErrorAction SilentlyContinue

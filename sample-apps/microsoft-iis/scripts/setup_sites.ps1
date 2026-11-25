@@ -55,7 +55,11 @@ Set-ItemProperty "IIS:\AppPools\pool-badid" -Name processModel -Value @{
 # WebDAV on web-main's dav folder lets the load scripts upload files and lock them.
 $apphost = "MACHINE/WEBROOT/APPHOST"
 Set-WebConfigurationProperty -PSPath $apphost -Location "web-main" -Filter "system.webServer/webdav/authoring" -Name enabled -Value $true
-Add-WebConfigurationProperty -PSPath $apphost -Location "web-main/dav" -Filter "system.webServer/webdav/authoringRules" -Name "." -Value @{ users = "*"; path = "*"; access = "Read,Write,Source" }
+$davRule = Get-WebConfigurationProperty -PSPath $apphost -Location "web-main/dav" -Filter "system.webServer/webdav/authoringRules" -Name Collection |
+    Where-Object { $_.users -eq "*" -and $_.path -eq "*" }
+if (-not $davRule) {
+    Add-WebConfigurationProperty -PSPath $apphost -Location "web-main/dav" -Filter "system.webServer/webdav/authoringRules" -Name "." -Value @{ users = "*"; path = "*"; access = "Read,Write,Source" }
+}
 Set-WebConfigurationProperty -PSPath $apphost -Location "web-main/dav" -Filter "system.webServer/security/authentication/anonymousAuthentication" -Name enabled -Value $false
 Set-WebConfigurationProperty -PSPath $apphost -Location "web-main/dav" -Filter "system.webServer/security/authentication/windowsAuthentication" -Name enabled -Value $true
 

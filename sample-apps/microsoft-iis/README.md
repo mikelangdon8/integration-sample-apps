@@ -4,13 +4,20 @@ This sample app installs Microsoft IIS on Windows Server, creates sites whose lo
 
 ## Prerequisites
 
+The sample app installs IIS on the machine it runs on and changes that machine's configuration. Run it on a virtual machine you can discard.
+
 Before you begin, ensure you have the following:
 
-- Windows Server 2022 or 2025, with administrator rights
-- PowerShell 5.1 or later
-- GNU Make, for the Make commands
-- Internet connectivity for downloading Alloy
-- A Prometheus-compatible endpoint and a Loki endpoint for Alloy to write to
+- A Windows Server 2022 or 2025 VM, with administrator rights
+- Git and GNU Make
+- Internet access, for downloading Alloy and for Alloy to write to your endpoints
+- A Prometheus-compatible endpoint and a Loki endpoint
+
+### Suggested setup
+
+- **VM**: Microsoft's free 180-day evaluation editions of [Windows Server 2025](https://www.microsoft.com/evalcenter/download-windows-server-2025) and [Windows Server 2022](https://www.microsoft.com/evalcenter/download-windows-server-2022) run the sample app. CI runs it with 4 vCPUs and 16 GB of memory.
+- **Git and GNU Make**: Windows Server doesn't include them. [Chocolatey](https://chocolatey.org/install) installs both with `choco install git make -y`. Open a new administrator shell afterward, so the shell finds Git.
+- **Endpoints**: A free [Grafana Cloud](https://grafana.com/products/cloud/) stack provides both. Install the Microsoft IIS integration in the stack to see the sample app's data on the integration's dashboards.
 
 ## Quick Start for new users
 
@@ -23,7 +30,7 @@ To get started with the sample app, follow these steps from an administrator she
    ```
 
 2. **Set up default config**:
-   Execute `make defaultconfig PROMETHEUS_INSTANCE=<your-prometheus-host:port> LOKI_INSTANCE=<your-loki-host:port>` to create `config/alloy-config.alloy`. Modify it to add credentials for your endpoints.
+   Execute `make defaultconfig PROMETHEUS_INSTANCE=<your-prometheus-host:port> LOKI_INSTANCE=<your-loki-host:port>` to create `config/alloy-config.alloy`. For a Grafana Cloud stack, run `make defaultconfig` without the variables, then replace both `url` values with your stack's push URLs and add credentials, as [Default configuration variables](#default-configuration-variables) describes.
 
 3. **Run the sample app**:
    Use `make run` to install IIS, create the sites, install and start Alloy, and generate load for 10 minutes.
@@ -57,7 +64,7 @@ Set these on the command line, e.g. `make defaultconfig PROMETHEUS_INSTANCE=mimi
 
 - `prometheus.remote_write "metrics_service"`: The `url` of the Prometheus-compatible push endpoint.
 - `loki.write "grafana_cloud_loki"`: The `url` of the Loki push endpoint.
-- Credentials: None by default. Add a `basic_auth` block with `username` and `password` inside an `endpoint` block to send them.
+- Credentials: None by default. Add a `basic_auth` block with `username` and `password` inside an `endpoint` block to send them. For Grafana Cloud, the username is the stack's Prometheus or Loki user ID, and the password is a Grafana Cloud access policy token with write access to metrics and logs.
 
 ## Validating services
 
@@ -74,7 +81,7 @@ Set these on the command line, e.g. `make defaultconfig PROMETHEUS_INSTANCE=mimi
   ```powershell
   Get-Website
   ```
-- **Check logs**: Review each site's access log under `C:\inetpub\logs\LogFiles\W3SVC<site-id>\`.
+- **Check logs**: Review each site's access log under `C:\inetpub\logs\LogFiles\W3SVC<site-id>\`. `web-badid` writes none, because WAS disables its pool before it serves a request.
 
 Each site has its own application pool, so each pool's metrics come from one kind of load:
 
@@ -82,8 +89,8 @@ Each site has its own application pool, so each pool's metrics come from one kin
 |---|---|---|---|---|
 | `web-main` | 2 | 8081 | `pool-main` | Page requests, 404 and 500 responses, WebSocket connections, WebDAV uploads and writes to a locked file |
 | `web-crash` | 3 | 8082 | `pool-crash` | Page requests, and its worker process is killed |
-| `web-hang` | 4 | 8083 | `pool-hang` | Page requests, and its worker process is suspended until WAS pings fail |
-| `web-stuck` | 5 | 8084 | `pool-stuck` | Page requests, and its worker process is suspended before the pool recycles |
+| `web-hang` | 4 | 8083 | `pool-hang` | Page requests, and in the load's first minutes its worker process is suspended until WAS pings fail |
+| `web-stuck` | 5 | 8084 | `pool-stuck` | Page requests, and in the load's first minutes its worker process is suspended before the pool recycles |
 | `web-badid` | 6 | 8085 | `pool-badid` | Runs as a user that doesn't exist, so WAS disables the pool |
 
 The sample app does not produce data for five of the metrics the integration reads:
